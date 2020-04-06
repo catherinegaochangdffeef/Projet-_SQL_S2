@@ -1,0 +1,331 @@
+1.Quel pourcentage de questions portant sur le sport comporte au moins 3 bonnes réponses proposées?
+Requête:
+CREATE TEMPORARY TABLE T1
+SELECT COUNT(SE_COMPOSE.no_question) AS R1
+FROM SE_COMPOSE, QUESTIONNAIRE, THEME
+WHERE THEME.libelle_theme = "Sport"
+AND THEME.no_theme=QUESTIONNAIRE.no_theme
+AND QUESTIONNAIRE.no_quest=SE_COMPOSE.no_quest
+;
+CREATE TEMPORARY TABLE T2
+SELECT COUNT(no_question) AS R2
+FROM SE_COMPOSE
+WHERE no_question IN (
+SELECT SE_COMPOSE.no_question AS Resultat
+FROM SE_COMPOSE, QUESTIONNAIRE, THEME, REP_PROPOSEE
+WHERE THEME.libelle_theme = "Sport"
+AND THEME.no_theme=QUESTIONNAIRE.no_theme
+AND QUESTIONNAIRE.no_quest=SE_COMPOSE.no_quest
+AND SE_COMPOSE.no_question = REP_PROPOSEE.no_question
+GROUP BY REP_PROPOSEE.no_question
+HAVING COUNT(CASE WHEN REP_PROPOSEE.etat_rep=1 THEN 1 ELSE null END) >=3
+    )
+;
+SELECT R2/R1*100 AS "Résultat"
+FROM T1, T2
+
+
+Résultat :
+25%
+
+2.Quels sont, pour chaque question, les pourcentages de réponses données correctes, 
+de réponses données fausses, et de non-réponses?
+Requête:
+
+CREATE TEMPORARY TABLE a1
+SELECT no_question,COUNT(*)AS S1
+FROM   SESSION, SE_COMPOSE
+WHERE  SESSION.no_quest=SE_COMPOSE.no_quest
+GROUP BY no_question
+;
+
+CREATE TEMPORARY TABLE a2
+SELECT SE_COMPOSE.no_question,COUNT(*)AS S2
+FROM SESSION,REP_DONNEE,SE_COMPOSE,REP_PROPOSEE
+WHERE REP_PROPOSEE.etat_rep=1
+AND REP_PROPOSEE.no_question=SE_COMPOSE.no_question
+AND REP_DONNEE.no_ordre_rep=REP_PROPOSEE.no_ordre_rep
+AND REP_DONNEE.no_question=SE_COMPOSE.no_question
+AND SESSION.no_quest=SE_COMPOSE.no_quest
+AND SESSION.no_session=REP_DONNEE.no_session
+GROUP BY SE_COMPOSE.no_question
+UNION
+SELECT no_question,0
+FROM SESSION,SE_COMPOSE
+WHERE SESSION.no_quest=SE_COMPOSE.no_quest
+AND no_question NOT IN 
+(
+    SELECT REP_DONNEE.no_question
+    FROM REP_DONNEE,REP_PROPOSEE
+    WHERE REP_DONNEE.no_question=REP_PROPOSEE.no_question
+    AND REP_DONNEE.no_ordre_rep=REP_PROPOSEE.no_ordre_rep
+    AND etat_rep=1
+    
+)
+;
+CREATE TEMPORARY TABLE a3
+SELECT SE_COMPOSE.no_question, COUNT(*)AS S3
+FROM SESSION,REP_DONNEE,SE_COMPOSE,REP_PROPOSEE
+WHERE REP_PROPOSEE.etat_rep=0
+AND REP_PROPOSEE.no_question=SE_COMPOSE.no_question
+AND REP_DONNEE.no_ordre_rep=REP_PROPOSEE.no_ordre_rep
+AND REP_DONNEE.no_question=SE_COMPOSE.no_question
+AND SESSION.no_quest=SE_COMPOSE.no_quest
+AND SESSION.no_session=REP_DONNEE.no_session
+GROUP BY SE_COMPOSE.no_question
+UNION
+SELECT no_question,0
+FROM SESSION,SE_COMPOSE
+WHERE SESSION.no_quest=SE_COMPOSE.no_quest
+AND no_question NOT IN 
+(
+    SELECT REP_DONNEE.no_question
+    FROM REP_DONNEE,REP_PROPOSEE
+    WHERE REP_DONNEE.no_question=REP_PROPOSEE.no_question
+    AND REP_DONNEE.no_ordre_rep=REP_PROPOSEE.no_ordre_rep
+    AND etat_rep=0
+    
+)
+;
+SELECT a1.no_question,libelle, 100*S2/S1 AS justes , 100*S3/S1 AS fausses, 100*(S1-S2-S3)/S1 AS nonreponse
+FROM a1,a2,a3,QUESTION
+WHERE a1.no_question=a2.no_question
+AND a1.no_question=a3.no_question
+AND a1.no_question=QUESTION.no_question
+
+
+Résultat:
+no_question	justes(%)	fausses(%)	non-réponse(%)
+1		0		25		75
+2		25		25		50
+3		67		34		0
+4		0		100		0		
+6		100		0		0
+8		0		0		0
+9		0		50		50
+11		50		50		0
+13		0		67		34
+14		0		0		100
+15		0		0		100
+16		0		67		34
+Pour la question 5,7,10,12, il n'y a de réponse donnée. Donc il y a de pourcentage pour eux.
+
+
+3.Liste alphabétique des personnes ayant donné une réponse correcte à toutes les questions lors d'au moins une session.
+
+Requête:
+
+SELECT DISTINCT(P.no_pers), P.nom_pers, P.prenom_pers
+FROM PERSONNE P, `SESSION` S
+WHERE P.no_pers=S.no_pers
+AND (S.no_session) NOT IN(
+SELECT DISTINCT(S.no_session)
+FROM 	REP_PROPOSEE RP, REP_DONNEE RD, `SESSION` S
+WHERE 	RP.no_question=RD.no_question
+AND	RP.no_ordre_rep=RD.no_ordre_rep
+AND RD.no_session=S.no_session
+AND	RP.etat_rep=0
+)	
+ORDER BY  P.nom_pers	
+
+résultat : (rien )
+
+4.Quels utilisateurs ont répondu à des questionnaires portant sur tous les thèmes pour lesquels il existes des questionnaire?
+
+Requête:
+
+SELECT DISTINCT PERSONNE.no_pers, PERSONNE.nom_pers, PERSONNE.prenom_pers
+FROM PERSONNE
+WHERE   PERSONNE.no_pers IN (
+	SELECT PERSONNE.no_pers
+	FROM `SESSION`, QUESTIONNAIRE, PERSONNE
+	WHERE PERSONNE.no_pers=`SESSION`.no_pers
+	AND   `SESSION`.no_quest=QUESTIONNAIRE.no_quest
+	GROUP BY `SESSION`.no_pers
+	HAVING COUNT(DISTINCT QUESTIONNAIRE.no_theme)=(SELECT COUNT(*) FROM THEME)
+	)
+
+résultat :
+no_pers nom_pers prenom_pers
+3	MERT	 Elna
+
+5.Quels utilisateurs ont répondu au moins une fois à tous les questionnaires?
+
+Requête:
+
+SELECT DISTINCT no_pers, nom_pers, prenom_pers
+FROM   PERSONNE
+WHERE   PERSONNE.no_pers IN (
+	SELECT PERSONNE.no_pers
+	FROM `SESSION`, QUESTIONNAIRE, PERSONNE
+	WHERE PERSONNE.no_pers=`SESSION`.no_pers
+	AND   `SESSION`.no_quest=QUESTIONNAIRE.no_quest
+	GROUP BY `SESSION`.no_pers
+	HAVING COUNT(DISTINCT QUESTIONNAIRE.no_quest)=(SELECT COUNT(*) FROM QUESTIONNAIRE)
+	)
+résultat :
+null
+
+6.Score de la session numéro 1
+
+Requête:
+
+CREATE TEMPORARY TABLE a1
+SELECT COUNT(REP_PROPOSEE.no_question)as S1
+FROM  REP_DONNEE,REP_PROPOSEE
+WHERE REP_DONNEE.no_session=1
+AND REP_PROPOSEE.etat_rep=1
+AND REP_DONNEE.no_question=REP_PROPOSEE.no_question
+AND REP_DONNEE.no_ordre_rep=REP_PROPOSEE.no_ordre_rep
+;
+CREATE TEMPORARY TABLE a2
+SELECT COUNT(no_question) as S2
+FROM REP_DONNEE
+WHERE REP_DONNEE.no_session=1
+;
+CREATE TEMPORARY TABLE a3
+SELECT COUNT(no_question) as S3
+FROM SESSION,SE_COMPOSE
+WHERE SESSION.no_session=1
+AND SESSION.no_quest=SE_COMPOSE.no_quest
+; 
+SELECT 4*S1-S2-S3 as Score
+FROM a1,a2,a3
+
+résulat:1
+ 
+7.Quel est le pourcentage des personnes ayant participé à au moins 1 session qui ont obtenu un score supérieur à 0 lors d'au moins 1 session ?
+
+Requête:
+
+CREATE TEMPORARY TABLE a2
+SELECT COUNT(DISTINCT no_pers)as S2
+FROM SESSION
+;
+CREATE TEMPORARY TABLE a3
+SELECT no_session,COUNT(REP_PROPOSEE.no_question)as S3
+FROM REP_DONNEE, REP_PROPOSEE
+WHERE REP_PROPOSEE.etat_rep=1
+AND REP_DONNEE.no_question=REP_PROPOSEE.no_question
+AND REP_DONNEE.no_ordre_rep=REP_PROPOSEE.no_ordre_rep
+GROUP BY REP_DONNEE.no_session
+UNION 
+SELECT no_session,0
+FROM REP_DONNEE
+WHERE no_session NOT IN
+(SELECT REP_DONNEE.no_session
+ FROM REP_PROPOSEE,REP_DONNEE
+ WHERE etat_rep=1
+ AND REP_DONNEE.no_question=REP_PROPOSEE.no_question
+ AND REP_DONNEE.no_ordre_rep=REP_PROPOSEE.no_ordre_rep
+)
+;
+CREATE TEMPORARY TABLE a4
+SELECT no_session,COUNT(no_question) as S4
+FROM REP_DONNEE
+GROUP BY REP_DONNEE.no_session
+;
+CREATE TEMPORARY TABLE a5
+SELECT no_session,COUNT(no_question) as S5
+FROM SESSION, SE_COMPOSE
+WHERE SESSION.no_quest=SE_COMPOSE.no_quest
+GROUP BY SESSION.no_session
+;
+CREATE TEMPORARY TABLE a6
+SELECT a3.no_session,4*S3-S5-S4 as S6
+FROM a3,a4,a5
+WHERE a3.no_session=a4.no_session
+AND a4.no_session=a5.no_session
+;
+CREATE TEMPORARY TABLE a1
+SELECT COUNT(DISTINCT no_pers) as S1
+FROM SESSION
+WHERE (SESSION.no_session) IN 
+	(
+	SELECT DISTINCT(SESSION.no_session)
+	FROM SESSION,a6
+	WHERE S6>0
+	)
+;
+
+SELECT S1/S2*100 as pourcentage
+FROM a1,a2
+;
+
+
+Résultat: 100% 
+
+
+8.Quelles personnes ont réalisés les 3 meilleurs scores?
+
+Requête:
+
+CREATE TEMPORARY TABLE a1
+SELECT no_session,COUNT(REP_PROPOSEE.no_question)as S1
+FROM REP_DONNEE, REP_PROPOSEE
+WHERE REP_PROPOSEE.etat_rep=1
+AND REP_DONNEE.no_question=REP_PROPOSEE.no_question
+AND REP_DONNEE.no_ordre_rep=REP_PROPOSEE.no_ordre_rep
+GROUP BY REP_DONNEE.no_session
+UNION 
+SELECT no_session,0
+FROM REP_DONNEE
+WHERE no_session NOT IN
+(SELECT REP_DONNEE.no_session
+ FROM REP_PROPOSEE,REP_DONNEE
+ WHERE etat_rep=1
+ AND REP_DONNEE.no_question=REP_PROPOSEE.no_question
+ AND REP_DONNEE.no_ordre_rep=REP_PROPOSEE.no_ordre_rep
+)
+;
+CREATE TEMPORARY TABLE a2
+SELECT no_session,COUNT(no_question) as S2
+FROM REP_DONNEE
+GROUP BY REP_DONNEE.no_session
+;
+CREATE TEMPORARY TABLE a3
+SELECT no_session,COUNT(no_question) as S3
+FROM SESSION, SE_COMPOSE
+WHERE SESSION.no_quest=SE_COMPOSE.no_quest
+GROUP BY SESSION.no_session
+;
+CREATE TEMPORARY TABLE a4
+SELECT a2.no_session,4*S1-S3-S2 as S4
+FROM a1,a2,a3
+WHERE a1.no_session=a2.no_session
+AND a2.no_session=a3.no_session
+;
+
+SELECT DISTINCT(SESSION.no_pers),nom_pers,prenom_pers
+FROM SESSION,a4,PERSONNE
+WHERE SESSION.no_pers=PERSONNE.no_pers
+ORDER BY S4 DESC
+LIMIT 3	
+;
+
+
+Résultat:
+
+no_pers	nom_per  prenoms_pers
+5	KUS	 Tom
+2	COVER	 Harry
+3	MERT     Elna
+
+9.Existe-t-il des réponses données enregistrées ne correspondant pas à une question posée?
+Requête:
+
+SELECT no_question,no_session
+FROM REP_DONNEE
+WHERE no_question NOT IN (
+		SELECT SE_COMPOSE.no_question
+		FROM SESSION
+        NATURAL JOIN SE_COMPOSE
+		WHERE REP_DONNEE.no_session=SESSION.no_session
+	
+			)
+Résultat:
+no_question  no_session
+5		4
+12		9
+10		9
+7		4
